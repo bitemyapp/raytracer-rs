@@ -9,9 +9,10 @@ extern crate byteorder;
 // #endif
 // #define MAX_RAY_DEPTH 5
 
-use byteorder::{ReadBytesExt, WriteBytesExt, BigEndian, LittleEndian};
-use std::cmp::max;
+// use byteorder::{ReadBytesExt, WriteBytesExt, BigEndian, LittleEndian};
+// use std::cmp::max;
 use std::f32::NAN;
+use std::cmp::Ordering;
 use std::fs::File;
 use std::io::prelude::*;
 use std::ops::Add;
@@ -23,7 +24,7 @@ const PI: f32 = 3.141592653589793;
 const INFINITY: f32 = 1e8;
 const MAX_RAY_DEPTH: u64 = 5;
 
-#[derive(Clone, Copy, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
 struct Vec3 {
     x: f32,
     y: f32,
@@ -210,16 +211,19 @@ impl Sphere {
 
     //         return true;
     //     }
-    fn intersect(&self, rayorig: Vec3, raydir: Vec3, t0: &mut f32, t1: &mut f32) -> bool {
-        let l: Vec3 = self.center.sub(rayorig);
+    fn intersect(&self, rayorig: Vec3, raydir: Vec3, mut t0: &mut f32, mut t1: &mut f32) -> bool {
+        let l: Vec3 = self.center - rayorig;
         let tca: f32 = l.dot(&raydir);
         if tca < 0.0 {
             return false;
         }
         let d2: f32 = l.dot(&l) - tca * tca;
-        let thc: f32 = (self.radius - d2).sqrt();
-        let t0: f32 = tca - thc;
-        let t1: f32 = tca + thc;
+        if d2 > self.radius2 { return false; }
+        let thc: f32 = (self.radius2 - d2).sqrt();
+        // let tc_sub = (tca - thc).clone();
+        // let tc_add = (tca + thc).clone();
+        *t0 = tca - thc;
+        *t1 = tca + thc;
         return true;
     }
 }
@@ -236,9 +240,9 @@ fn mix(a: f32, b: f32, mix: f32) -> f32 {
 fn partial_max<T>(x: T, y: T) -> T where T: PartialOrd {
     match x.partial_cmp(&y) {
         None => x,
-        Some(Less) => y,
-        Some(Equal) => x,
-        Some(Greater) => x,
+        Some(Ordering::Less) => y,
+        Some(Ordering::Equal) => x,
+        Some(Ordering::Greater) => x,
     }
 }
 // Vec3f trace(
@@ -266,7 +270,6 @@ fn trace(rayorig: Vec3, raydir: Vec3, spheres: &Vec<Sphere>, depth: u64) -> Vec3
     //             }
     //         }
     //     }
-
     let mut tnear = INFINITY;
     let mut osphere: Option<Sphere> = None;
     for vsphere in spheres.iter() {
@@ -290,6 +293,7 @@ fn trace(rayorig: Vec3, raydir: Vec3, spheres: &Vec<Sphere>, depth: u64) -> Vec3
         None => return Vec3::build1(2.0),
         Some(sphere) => sphere,
     };
+    // println!("Survived osphere");
     //     Vec3f surfaceColor = 0; // color of the ray/surfaceof the object intersected by the ray
     //     Vec3f phit = rayorig + raydir * tnear; // point of intersection
     //     Vec3f nhit = phit - sphere->center; // normal at the intersection point
@@ -414,6 +418,7 @@ fn trace(rayorig: Vec3, raydir: Vec3, spheres: &Vec<Sphere>, depth: u64) -> Vec3
 
     //     return surfaceColor + sphere->emissionColor;
     // }
+    // println!("{:?}", surface_color + sphere.emission_color);
     return surface_color + sphere.emission_color;
     // Vec3::build0()
 }
@@ -520,7 +525,7 @@ fn render(spheres: Vec<Sphere>) -> std::io::Result<()> {
         // write!(&mut buffer, "{:b}", one.min(image[i].y) * 255.0);
         // write!(&mut buffer, "{:b}", one.min(image[i].z) * 255.0);
     }
-    println!("{:?}", wtr.len());
+    // println!("{:?}", wtr.len());
     let mut buffer = File::create("./untitled.ppm")?;
     buffer.write(&wtr);
     Ok(())

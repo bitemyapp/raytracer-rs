@@ -1,5 +1,5 @@
 run:
-	cargo run --bin raytracer && hexdump untitled.ppm && hexdump unt.ppm | head
+	RUST_BACKTRACE=1 cargo run --bin raytracer
 
 build-rs:
 	cargo build
