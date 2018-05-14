@@ -14,3 +14,6 @@ raytracer
 
 /target
 **/*.rs.bk
+
+testcpp
+testrs

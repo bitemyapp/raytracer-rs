@@ -473,16 +473,24 @@ fn render(spheres: Vec<Sphere>) -> std::io::Result<()> {
     //     delete [] image;
     // }
     let mut wtr = vec![];
-    wtr.write_u16::<LittleEndian>(517).unwrap();
-    wtr.write_u16::<LittleEndian>(768).unwrap();
-    let mut buffer = File::create("./untitled.ppm")?;
-    buffer.write(b"P6\n");
+    // wtr.write_u16::<LittleEndian>(517).unwrap();
+    // wtr.write_u16::<LittleEndian>(768).unwrap();
+    // wtr.write_u64::<LittleEndian>(width as u64).unwrap();
+    // wtr.write(width);
+    // wtr.write_u64::<LittleEndian>(height as u64).unwrap();
+    wtr.write(b"P6\n");
+    write!(wtr, "{}", width);
+    wtr.write(b" ");
+    write!(wtr, "{}", height);
+    wtr.write(b"\n255\n");
+    // buffer.write(b"P6\n");
     // buffer.write(width);
-    write!(&mut buffer, "{:b}", width);
-    buffer.write(b" ");
+    // buffer.write(b" ");
     // buffer.write(height);
-    write!(&mut buffer, "{:b}", height);
-    buffer.write(b"\n255\n");
+    // buffer.write(b"\n255\n");
+    // write!(&mut buffer, "{:b}", width);
+    // buffer.write(height);
+    // write!(&mut buffer, "{:b}", height);
     for i in 0..(width * height) {
         let one: f32 = 1.0;
         // let write_x = one.min(image[i].x) * 255.0;
@@ -494,10 +502,16 @@ fn render(spheres: Vec<Sphere>) -> std::io::Result<()> {
         let write_x = one.min(pixel[i].x) * 255.0;
         let write_y = one.min(pixel[i].y) * 255.0;
         let write_z = one.min(pixel[i].z) * 255.0;
-
-        wtr.write_f32::<LittleEndian>(write_x).unwrap();
-        wtr.write_f32::<LittleEndian>(write_y).unwrap();
-        wtr.write_f32::<LittleEndian>(write_z).unwrap();
+        wtr.write(&[write_x as u8,
+                   write_y as u8,
+                   write_z as u8,
+                  ]
+        );
+        // wtr.write(write_y as u8);
+        // wtr.write(write_z as u8);        
+        // wtr.write_f32::<LittleEndian>(write_x).unwrap();
+        // wtr.write_f32::<LittleEndian>(write_y).unwrap();
+        // wtr.write_f32::<LittleEndian>(write_z).unwrap();
         // buffer.write(one.min(image[i].x) * 255.0);
         // buffer.write(one.min(image[i].y) * 255.0);
         // buffer.write(one.min(image[i].z) * 255.0);
@@ -506,6 +520,7 @@ fn render(spheres: Vec<Sphere>) -> std::io::Result<()> {
         // write!(&mut buffer, "{:b}", one.min(image[i].z) * 255.0);
     }
     println!("{:?}", wtr.len());
+    let mut buffer = File::create("./untitled.ppm")?;
     buffer.write(&wtr);
     Ok(())
 }

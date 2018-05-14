@@ -9,3 +9,7 @@ byteorder = "1.2.3"
 [[bin]]
 name = "raytracer"
 path = "raytracer.rs"
+
+[[bin]]
+name = "testrs"
+path = "test.rs"
