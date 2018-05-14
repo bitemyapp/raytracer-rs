@@ -502,10 +502,11 @@ fn render(spheres: Vec<Sphere>) -> std::io::Result<()> {
         let write_x = one.min(pixel[i].x) * 255.0;
         let write_y = one.min(pixel[i].y) * 255.0;
         let write_z = one.min(pixel[i].z) * 255.0;
-        wtr.write(&[write_x as u8,
-                   write_y as u8,
-                   write_z as u8,
-                  ]
+        wtr.write(
+            &[write_x as u8,
+              write_y as u8,
+              write_z as u8,
+            ]
         );
         // wtr.write(write_y as u8);
         // wtr.write(write_z as u8);        
