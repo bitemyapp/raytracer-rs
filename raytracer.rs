@@ -1,4 +1,5 @@
 extern crate byteorder;
+extern crate stacker;
 
 // #if defined __linux__ || defined __APPLE__
 // // "Compiled for Linux
@@ -319,7 +320,7 @@ fn trace(rayorig: Vec3, raydir: Vec3, spheres: &Vec<Sphere>, depth: u64) -> Vec3
     //         refldir.normalize();
     //         Vec3f reflection = trace(phit + nhit * bias, refldir, spheres, depth + 1);
     //         Vec3f refraction = 0;
-    if sphere.transparency > 0.0 || sphere.reflection > 0.0 && depth < MAX_RAY_DEPTH {
+    if (sphere.transparency > 0.0 || sphere.reflection > 0.0) && depth < MAX_RAY_DEPTH {
         let facingratio = -raydir.dot(&nhit);
         let fresneleffect = mix((1.0 - facingratio).powf(3.0), 1.0, 0.1);
         let mut refldir = raydir - nhit * Vec3::build1(2.0) * Vec3::build1(raydir.dot(&nhit));
@@ -329,7 +330,15 @@ fn trace(rayorig: Vec3, raydir: Vec3, spheres: &Vec<Sphere>, depth: u64) -> Vec3
             refldir,
             spheres,
             depth + 1,
-        );
+            );
+        // let reflection = stacker::maybe_grow(32 * 1024, 1024 * 1024, || {
+        //     trace(
+        //         phit + nhit * Vec3::build1(bias),
+        //         refldir,
+        //         spheres,
+        //         depth + 1,
+        //     )
+        // });
         let mut refraction = Vec3::build1(0.0);
         // was sphere.transparency, nullable?
         //         if (sphere->transparency) {
@@ -373,43 +382,45 @@ fn trace(rayorig: Vec3, raydir: Vec3, spheres: &Vec<Sphere>, depth: u64) -> Vec3
         //         for (unsigned i = 0; i < spheres.size(); ++i) {
         //             if (spheres[i].emissionColor.x > 0) {
         for isphere in spheres.iter() {
-            //                 // this is a light
-            //                 Vec3f transmission = 1;
-            //                 Vec3f lightDirection = spheres[i].center - phit;
-            //                 lightDirection.normalize();
-            let mut transmission = 1.0;
-            let mut light_direction = isphere.center - phit;
-            light_direction.normalize();
-            //                 for (unsigned j = 0; j < spheres.size(); ++j) {
-            for jsphere in spheres.iter() {
-                //                     if (i != j) {
-                //                         float t0, t1;
-                //                         if (spheres[j].intersect(phit + nhit * bias, lightDirection, t0, t1)) {
-                //                             transmission = 0;
-                //                             break;
-                //                         }
-                //                     }
-                if isphere != jsphere {
-                    let mut t0 = NAN;
-                    let mut t1 = NAN;
-                    if jsphere.intersect(phit + nhit * Vec3::build1(bias),
-                                         light_direction,
-                                         &mut t0,
-                                         &mut t1) {
-                        transmission = 0.0;
-                        break;
-                    }
-                }
-            }
-            // surfaceColor += sphere->surfaceColor * transmission *
-            // std::max(float(0), nhit.dot(lightDirection)) * spheres[i].emissionColor;
-            let new_surface_color =
-                sphere.surface_color * Vec3::build1(transmission)
-                * partial_max(Vec3::build1(0.0),
-                              Vec3::build1(nhit.dot(&light_direction)))
-                * isphere.emission_color;
+            if isphere.emission_color.x > 0.0 {
+              //                 // this is a light
+              //                 Vec3f transmission = 1;
+              //                 Vec3f lightDirection = spheres[i].center - phit;
+              //                 lightDirection.normalize();
+              let mut transmission = 1.0;
+              let mut light_direction = isphere.center - phit;
+              light_direction.normalize();
+              //                 for (unsigned j = 0; j < spheres.size(); ++j) {
+              for jsphere in spheres.iter() {
+                  //                     if (i != j) {
+                  //                         float t0, t1;
+                  //                         if (spheres[j].intersect(phit + nhit * bias, lightDirection, t0, t1)) {
+                  //                             transmission = 0;
+                  //                             break;
+                  //                         }
+                  //                     }
+                  if isphere != jsphere {
+                      let mut t0 = NAN;
+                      let mut t1 = NAN;
+                      if jsphere.intersect(phit + nhit * Vec3::build1(bias),
+                                           light_direction,
+                                           &mut t0,
+                                           &mut t1) {
+                          transmission = 0.0;
+                          break;
+                      }
+                  }
+              }
+              // surfaceColor += sphere->surfaceColor * transmission *
+              // std::max(float(0), nhit.dot(lightDirection)) * spheres[i].emissionColor;
+              let new_surface_color =
+                  sphere.surface_color * Vec3::build1(transmission)
+                  * partial_max(Vec3::build1(0.0),
+                                Vec3::build1(nhit.dot(&light_direction)))
+                  * isphere.emission_color;
 
-            surface_color = surface_color + new_surface_color;
+              surface_color = surface_color + new_surface_color;
+            }
         }
     //             }
     //         }
