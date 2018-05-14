@@ -1,3 +1,5 @@
+extern crate byteorder;
+
 // #if defined __linux__ || defined __APPLE__
 // // "Compiled for Linux
 // #else
@@ -7,6 +9,11 @@
 // #endif
 // #define MAX_RAY_DEPTH 5
 
+use byteorder::{ReadBytesExt, WriteBytesExt, BigEndian, LittleEndian};
+use std::cmp::max;
+use std::f32::NAN;
+use std::fs::File;
+use std::io::prelude::*;
 use std::ops::Add;
 use std::ops::Mul;
 use std::ops::Neg;
@@ -16,7 +23,7 @@ const PI: f32 = 3.141592653589793;
 const INFINITY: f32 = 1e8;
 const MAX_RAY_DEPTH: u64 = 5;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, PartialOrd)]
 struct Vec3 {
     x: f32,
     y: f32,
@@ -60,9 +67,9 @@ impl Neg for Vec3 {
 
     fn neg(self) -> Vec3 {
         Vec3 {
-            x: -self.x,
-            y: -self.y,
-            z: -self.z,
+            x: self.x.neg(),
+            y: self.y.neg(),
+            z: self.z.neg(),
         }
     }
 }
@@ -152,7 +159,7 @@ impl Vec3 {
 //     Vec3f surfaceColor, emissionColor;      /// surface color and emission (light)
 //     float transparency, reflection;         /// surface transparency and reflectivity
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 struct Sphere {
     center: Vec3,
     radius: f32,
@@ -226,6 +233,14 @@ fn mix(a: f32, b: f32, mix: f32) -> f32 {
     b * mix + a * (1.0 - mix)
 }
 
+fn partial_max<T>(x: T, y: T) -> T where T: PartialOrd {
+    match x.partial_cmp(&y) {
+        None => x,
+        Some(Less) => y,
+        Some(Equal) => x,
+        Some(Greater) => x,
+    }
+}
 // Vec3f trace(
 //     const Vec3f &rayorig,
 //     const Vec3f &raydir,
@@ -235,9 +250,9 @@ fn mix(a: f32, b: f32, mix: f32) -> f32 {
 fn trace(rayorig: Vec3, raydir: Vec3, spheres: &Vec<Sphere>, depth: u64) -> Vec3 {
     // {
     //     //if (raydir.length() != 1) std::cerr << "Error " << raydir << std::endl;
-    if raydir.length() != 1.0 {
-        panic!("raydir length wasn't 1");
-    }
+    // if raydir.length() != 1.0 {
+    //     panic!("raydir length wasn't 1");
+    // }
     //     float tnear = INFINITY;
     //     const Sphere* sphere = NULL;
     //     // find intersection of this ray with the sphere in the scene
@@ -279,7 +294,7 @@ fn trace(rayorig: Vec3, raydir: Vec3, spheres: &Vec<Sphere>, depth: u64) -> Vec3
     //     Vec3f phit = rayorig + raydir * tnear; // point of intersection
     //     Vec3f nhit = phit - sphere->center; // normal at the intersection point
     //     nhit.normalize(); // normalize normal direction
-    let surface_color = Vec3::build1(0.0);
+    let mut surface_color = Vec3::build1(0.0);
     let phit = rayorig + raydir * Vec3::build1(tnear);
     let mut nhit = phit - sphere.center;
     nhit.normalize();
@@ -342,34 +357,59 @@ fn trace(rayorig: Vec3, raydir: Vec3, spheres: &Vec<Sphere>, depth: u64) -> Vec3
         //             reflection * fresneleffect +
         //             refraction * (1 - fresneleffect) * sphere->transparency) * sphere->surfaceColor;
         //     }
-        let surface_color = (reflection * Vec3::build1(fresneleffect)
-            + refraction * Vec3::build1(1.0 - fresneleffect) * Vec3::build1(sphere.transparency))
+        surface_color =
+            (reflection
+             * Vec3::build1(fresneleffect)
+             + refraction
+             * Vec3::build1(1.0 - fresneleffect)
+             * Vec3::build1(sphere.transparency))
             * sphere.surface_color;
     } else {
-    //         // it's a diffuse object, no need to raytrace any further
-    //         for (unsigned i = 0; i < spheres.size(); ++i) {
-    //             if (spheres[i].emissionColor.x > 0) {
-    //                 // this is a light
-    //                 Vec3f transmission = 1;
-    //                 Vec3f lightDirection = spheres[i].center - phit;
-    //                 lightDirection.normalize();
-    //                 for (unsigned j = 0; j < spheres.size(); ++j) {
-    //                     if (i != j) {
-    //                         float t0, t1;
-    //                         if (spheres[j].intersect(phit + nhit * bias, lightDirection, t0, t1)) {
-    //                             transmission = 0;
-    //                             break;
-    //                         }
-    //                     }
-    //                 }
-    //                 surfaceColor += sphere->surfaceColor * transmission *
-    //                 std::max(float(0), nhit.dot(lightDirection)) * spheres[i].emissionColor;
+        //         // it's a diffuse object, no need to raytrace any further
+        //         for (unsigned i = 0; i < spheres.size(); ++i) {
+        //             if (spheres[i].emissionColor.x > 0) {
+        for isphere in spheres.iter() {
+            //                 // this is a light
+            //                 Vec3f transmission = 1;
+            //                 Vec3f lightDirection = spheres[i].center - phit;
+            //                 lightDirection.normalize();
+            let mut transmission = 1.0;
+            let mut light_direction = isphere.center - phit;
+            light_direction.normalize();
+            //                 for (unsigned j = 0; j < spheres.size(); ++j) {
+            for jsphere in spheres.iter() {
+                //                     if (i != j) {
+                //                         float t0, t1;
+                //                         if (spheres[j].intersect(phit + nhit * bias, lightDirection, t0, t1)) {
+                //                             transmission = 0;
+                //                             break;
+                //                         }
+                //                     }
+                if isphere != jsphere {
+                    let mut t0 = NAN;
+                    let mut t1 = NAN;
+                    if jsphere.intersect(phit + nhit * Vec3::build1(bias),
+                                         light_direction,
+                                         &mut t0,
+                                         &mut t1) {
+                        transmission = 0.0;
+                        break;
+                    }
+                }
+            }
+            // surfaceColor += sphere->surfaceColor * transmission *
+            // std::max(float(0), nhit.dot(lightDirection)) * spheres[i].emissionColor;
+            let new_surface_color =
+                sphere.surface_color * Vec3::build1(transmission)
+                * partial_max(Vec3::build1(0.0),
+                              Vec3::build1(nhit.dot(&light_direction)))
+                * isphere.emission_color;
+
+            surface_color = surface_color + new_surface_color;
+        }
     //             }
     //         }
     //     }
-        for vsphere in spheres.iter() {
-            
-        }
     }
 
     //     return surfaceColor + sphere->emissionColor;
@@ -378,4 +418,187 @@ fn trace(rayorig: Vec3, raydir: Vec3, spheres: &Vec<Sphere>, depth: u64) -> Vec3
     // Vec3::build0()
 }
 
-fn main() {}
+// //[comment]
+// // Main rendering function. We compute a camera ray for each pixel of the image
+// // trace it and return a color. If the ray hits a sphere, we return the color of the
+// // sphere at the intersection point, else we return the background color.
+// //[/comment]
+// void render(const std::vector<Sphere> &spheres)
+// {
+fn render(spheres: Vec<Sphere>) -> std::io::Result<()> {
+//     unsigned width = 640, height = 480;
+    const width: usize = 640;
+    const height: usize = 480;
+//     Vec3f *image = new Vec3f[width * height], *pixel = image;
+//     float invWidth = 1 / float(width), invHeight = 1 / float(height);
+//     float fov = 30, aspectratio = width / float(height);
+//     float angle = tan(M_PI * 0.5 * fov / 180.);
+    // let mut image: [Vec3; width * height];
+    let mut image: Vec<Vec3> = Vec::new();
+    let inv_width = 1.0 / width as f32;
+    let inv_height = 1.0 / height as f32;
+    let fov = 30.0;
+    let aspect_ratio = width as f32 / height as f32;
+    let angle = (PI * 0.5 * fov / 180.0).tan();
+    let mut pixel = image;
+//     // Trace rays
+//     for (unsigned y = 0; y < height; ++y) {
+//         for (unsigned x = 0; x < width; ++x, ++pixel) {
+//             float xx = (2 * ((x + 0.5) * invWidth) - 1) * angle * aspectratio;
+//             float yy = (1 - 2 * ((y + 0.5) * invHeight)) * angle;
+//             Vec3f raydir(xx, yy, -1);
+//             raydir.normalize();
+//             *pixel = trace(Vec3f(0), raydir, spheres, 0);
+//         }
+//     }
+    for y in 0..height {
+        for x in 0..width {
+            let xx = (2.0 * ((x as f32 + 0.5) * inv_width) - 1.0) * angle * aspect_ratio;
+            let yy = (1.0 - 2.0 * ((y as f32 + 0.5) * inv_height)) * angle;
+            let mut raydir = Vec3 { x: xx, y: yy, z: -1.0 };
+            raydir.normalize();
+            // pixel[x] = trace(Vec3::build1(0.0), raydir, &spheres, 0);
+            pixel.push(trace(Vec3::build1(0.0), raydir, &spheres, 0));
+        }
+    }
+    //     // Save result to a PPM image (keep these flags if you compile under Windows)
+    //     std::ofstream ofs("./untitled.ppm", std::ios::out | std::ios::binary);
+    //     ofs << "P6\n" << width << " " << height << "\n255\n";
+    //     for (unsigned i = 0; i < width * height; ++i) {
+    //         ofs << (unsigned char)(std::min(float(1), image[i].x) * 255) <<
+    //                (unsigned char)(std::min(float(1), image[i].y) * 255) <<
+    //                (unsigned char)(std::min(float(1), image[i].z) * 255);
+    //     }
+    //     ofs.close();
+    //     delete [] image;
+    // }
+    let mut wtr = vec![];
+    wtr.write_u16::<LittleEndian>(517).unwrap();
+    wtr.write_u16::<LittleEndian>(768).unwrap();
+    let mut buffer = File::create("./untitled.ppm")?;
+    buffer.write(b"P6\n");
+    // buffer.write(width);
+    write!(&mut buffer, "{:b}", width);
+    buffer.write(b" ");
+    // buffer.write(height);
+    write!(&mut buffer, "{:b}", height);
+    buffer.write(b"\n255\n");
+    for i in 0..(width * height) {
+        let one: f32 = 1.0;
+        // let write_x = one.min(image[i].x) * 255.0;
+        // let write_y = one.min(image[i].y) * 255.0;
+        // let write_z = one.min(image[i].z) * 255.0;
+        // {
+        //     println!("{:?} {:?}", pixel[i].x, one.min(pixel[i].x));
+        // }
+        let write_x = one.min(pixel[i].x) * 255.0;
+        let write_y = one.min(pixel[i].y) * 255.0;
+        let write_z = one.min(pixel[i].z) * 255.0;
+
+        wtr.write_f32::<LittleEndian>(write_x).unwrap();
+        wtr.write_f32::<LittleEndian>(write_y).unwrap();
+        wtr.write_f32::<LittleEndian>(write_z).unwrap();
+        // buffer.write(one.min(image[i].x) * 255.0);
+        // buffer.write(one.min(image[i].y) * 255.0);
+        // buffer.write(one.min(image[i].z) * 255.0);
+        // write!(&mut buffer, "{:b}", one.min(image[i].x) * 255.0);
+        // write!(&mut buffer, "{:b}", one.min(image[i].y) * 255.0);
+        // write!(&mut buffer, "{:b}", one.min(image[i].z) * 255.0);
+    }
+    println!("{:?}", wtr.len());
+    buffer.write(&wtr);
+    Ok(())
+}
+
+// //[comment]
+// // In the main function, we will create the scene which is composed of 5 spheres
+// // and 1 light (which is also a sphere). Then, once the scene description is complete
+// // we render that scene, by calling the render() function.
+// //[/comment]
+// int main(int argc, char **argv)
+// {
+//     srand48(13);
+//     std::vector<Sphere> spheres;
+fn main() {
+    let mut spheres = Vec::new();
+    spheres.push(
+        // build(c: Vec3, r: f32, sc: Vec3, ec: Vec3, refl: f32, transp: f32)
+        //     // position, radius, surface color, reflectivity, transparency, emission color
+        //     spheres.push_back(Sphere(Vec3f( 0.0, -10004, -20), 10000, Vec3f(0.20, 0.20, 0.20), 0, 0.0));
+        Sphere::build(
+            Vec3 { x: 0.0, y: -10004.0, z: -20.0 },
+            10000.0,
+            Vec3 { x: 0.20, y: 0.20, z: 0.20 },
+            Vec3::build1(0.0),
+            0.0,
+            0.0,
+        )
+    );
+
+    spheres.push(
+        //     spheres.push_back(Sphere(Vec3f( 0.0,      0, -20),     4, Vec3f(1.00, 0.32, 0.36), 1, 0.5));
+        Sphere::build(
+            Vec3 { x: 0.0, y: 0.0, z: -20.0 },
+            4.0,
+            Vec3 { x: 1.00, y: 0.32, z: 0.36 },
+            Vec3::build1(1.0),
+            0.5,
+            0.0,
+        )
+    );
+
+    spheres.push(
+        //     spheres.push_back(Sphere(Vec3f( 5.0,     -1, -15),     2, Vec3f(0.90, 0.76, 0.46), 1, 0.0));
+        Sphere::build(
+            Vec3 { x: 5.0, y: -1.0, z: -15.0 },
+            2.0,
+            Vec3 { x: 0.90, y: 0.76, z: 0.46 },
+            Vec3::build1(1.0),
+            0.0,
+            0.0,
+        )
+    );
+
+    spheres.push(
+        //     spheres.push_back(Sphere(Vec3f( 5.0,      0, -25),     3, Vec3f(0.65, 0.77, 0.97), 1, 0.0));
+        Sphere::build(
+            Vec3 { x: 5.0, y: 0.0, z: -25.0 },
+            3.0,
+            Vec3 { x: 0.65, y: 0.77, z: 0.97 },
+            Vec3::build1(1.0),
+            0.0,
+            0.0,
+        )
+    );
+
+    spheres.push(
+        //     spheres.push_back(Sphere(Vec3f(-5.5,      0, -15),     3, Vec3f(0.90, 0.90, 0.90), 1, 0.0));
+        Sphere::build(
+            Vec3 { x: -5.5, y: 0.0, z: -15.0 },
+            3.0,
+            Vec3 { x: 0.90, y: 0.90, z: 0.90 },
+            Vec3::build1(1.0),
+            0.0,
+            0.0,
+        )
+    );
+
+
+    spheres.push(
+        //     // light
+        //     spheres.push_back(Sphere(Vec3f( 0.0,     20, -30),     3, Vec3f(0.00, 0.00, 0.00), 0, 0.0, Vec3f(3)));
+        Sphere::build(
+            Vec3 { x: 0.0, y: 20.0, z: -30.0 },
+            3.0,
+            Vec3 { x: 0.00, y: 0.00, z: 0.00 },
+            Vec3::build1(1.0),
+            0.0,
+            // Vec3::build1(3.0),
+            3.0,
+        )
+    );
+//     render(spheres);
+    render(spheres);
+//     return 0;
+// }
+}

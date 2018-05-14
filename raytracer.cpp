@@ -218,7 +218,9 @@ Vec3f trace(
 void render(const std::vector<Sphere> &spheres)
 {
     unsigned width = 640, height = 480;
-    Vec3f *image = new Vec3f[width * height], *pixel = image;
+    Vec3f *image = new Vec3f[width * height];
+    Vec3f *pixel = image;
+    // std::cout << typeid(pixel).name() << '\n';
     float invWidth = 1 / float(width), invHeight = 1 / float(height);
     float fov = 30, aspectratio = width / float(height);
     float angle = tan(M_PI * 0.5 * fov / 180.);
@@ -229,6 +231,7 @@ void render(const std::vector<Sphere> &spheres)
             float yy = (1 - 2 * ((y + 0.5) * invHeight)) * angle;
             Vec3f raydir(xx, yy, -1);
             raydir.normalize();
+            // Vec3f blah = *pixel;
             *pixel = trace(Vec3f(0), raydir, spheres, 0);
         }
     }

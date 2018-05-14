@@ -1,0 +1,11 @@
+[package]
+name = "raytracer"
+version = "0.1.0"
+authors = ["Chris Allen <cma@bitemyapp.com>"]
+
+[dependencies]
+byteorder = "1.2.3"
+
+[[bin]]
+name = "raytracer"
+path = "raytracer.rs"
