@@ -1,4 +1,5 @@
 extern crate byteorder;
+extern crate rayon;
 extern crate stacker;
 
 // #if defined __linux__ || defined __APPLE__
@@ -12,6 +13,7 @@ extern crate stacker;
 
 // use byteorder::{ReadBytesExt, WriteBytesExt, BigEndian, LittleEndian};
 // use std::cmp::max;
+use rayon::prelude::*;
 use std::f32::NAN;
 use std::cmp::Ordering;
 use std::fs::File;
@@ -104,7 +106,7 @@ impl Vec3 {
     }
     // length2() const { return x * x + y * y + z * z; }
     fn length2(&self) -> f32 {
-        self.x * self.x + self.y * self.y + self.z * self.z
+        (self.x * self.x) + (self.y * self.y) + (self.z * self.z)
     }
     //     Vec3& normalize()
     //     {
@@ -126,7 +128,7 @@ impl Vec3 {
     }
     // T dot(const Vec3<T> &v) const { return x * v.x + y * v.y + z * v.z; }
     fn dot(&self, v: &Vec3) -> f32 {
-        self.x * v.x + self.y * v.y + self.z * v.z
+        (self.x * v.x) + (self.y * v.y) + (self.z * v.z)
     }
     //     Vec3<T> operator - (const Vec3<T> &v) const { return Vec3<T>(x - v.x, y - v.y, z - v.z); }
 
@@ -184,7 +186,7 @@ struct Sphere {
 //     { /* empty */ }
 
 impl Sphere {
-    fn build(c: Vec3, r: f32, sc: Vec3, ec: Vec3, refl: f32, transp: f32) -> Sphere {
+    fn build(c: Vec3, r: f32, sc: Vec3, refl: f32, transp: f32, ec: Vec3) -> Sphere {
         Sphere {
             center: c,
             radius: r,
@@ -274,6 +276,8 @@ fn trace(rayorig: Vec3, raydir: Vec3, spheres: &Vec<Sphere>, depth: u64) -> Vec3
     let mut tnear = INFINITY;
     let mut osphere: Option<Sphere> = None;
     for vsphere in spheres.iter() {
+    // for vsphere in spheres.par_iter() {
+    // spheres.par_iter().map(|vsphere| {
         let mut t0 = INFINITY;
         let mut t1 = INFINITY;
         if vsphere.intersect(rayorig, raydir, &mut t0, &mut t1) {
@@ -288,6 +292,7 @@ fn trace(rayorig: Vec3, raydir: Vec3, spheres: &Vec<Sphere>, depth: u64) -> Vec3
             }
         }
     }
+    // });
     //     // if there's no intersection return black or background color
     //     if (!sphere) return Vec3f(2);
     let sphere = match osphere {
@@ -381,7 +386,9 @@ fn trace(rayorig: Vec3, raydir: Vec3, spheres: &Vec<Sphere>, depth: u64) -> Vec3
         //         // it's a diffuse object, no need to raytrace any further
         //         for (unsigned i = 0; i < spheres.size(); ++i) {
         //             if (spheres[i].emissionColor.x > 0) {
-        for isphere in spheres.iter() {
+        'outer: for isphere in spheres.iter() {
+        // 'outer: for isphere in spheres.par_iter() {
+        // spheres.par_iter().map(|isphere| {
             if isphere.emission_color.x > 0.0 {
               //                 // this is a light
               //                 Vec3f transmission = 1;
@@ -391,7 +398,9 @@ fn trace(rayorig: Vec3, raydir: Vec3, spheres: &Vec<Sphere>, depth: u64) -> Vec3
               let mut light_direction = isphere.center - phit;
               light_direction.normalize();
               //                 for (unsigned j = 0; j < spheres.size(); ++j) {
-              for jsphere in spheres.iter() {
+              'inner: for jsphere in spheres.iter() {
+              // 'inner: for jsphere in spheres.par_iter() {
+              // spheres.par_iter().map(|jsphere| {
                   //                     if (i != j) {
                   //                         float t0, t1;
                   //                         if (spheres[j].intersect(phit + nhit * bias, lightDirection, t0, t1)) {
@@ -400,16 +409,18 @@ fn trace(rayorig: Vec3, raydir: Vec3, spheres: &Vec<Sphere>, depth: u64) -> Vec3
                   //                         }
                   //                     }
                   if isphere != jsphere {
-                      let mut t0 = NAN;
-                      let mut t1 = NAN;
+                      // default nonsense
+                      let mut t0 = 0.0;
+                      let mut t1 = 0.0;
                       if jsphere.intersect(phit + nhit * Vec3::build1(bias),
                                            light_direction,
                                            &mut t0,
                                            &mut t1) {
                           transmission = 0.0;
-                          break;
+                          break 'inner;
                       }
                   }
+                  // });
               }
               // surfaceColor += sphere->surfaceColor * transmission *
               // std::max(float(0), nhit.dot(lightDirection)) * spheres[i].emissionColor;
@@ -422,9 +433,6 @@ fn trace(rayorig: Vec3, raydir: Vec3, spheres: &Vec<Sphere>, depth: u64) -> Vec3
               surface_color = surface_color + new_surface_color;
             }
         }
-    //             }
-    //         }
-    //     }
     }
 
     //     return surfaceColor + sphere->emissionColor;
@@ -433,6 +441,21 @@ fn trace(rayorig: Vec3, raydir: Vec3, spheres: &Vec<Sphere>, depth: u64) -> Vec3
     return surface_color + sphere.emission_color;
     // Vec3::build0()
 }
+
+// fn maybe_intersect() -> Box<FnMut()> {
+//   if isphere != jsphere {
+//       // default nonsense
+//       let mut t0 = 0.0;
+//       let mut t1 = 0.0;
+//       if jsphere.intersect(phit + nhit * Vec3::build1(bias),
+//                            light_direction,
+//                            &mut t0,
+//                            &mut t1) {
+//           transmission = 0.0;
+//           // break 'inner;
+//       }
+//   }
+// }
 
 // //[comment]
 // // Main rendering function. We compute a camera ray for each pixel of the image
@@ -445,17 +468,20 @@ fn render(spheres: Vec<Sphere>) -> std::io::Result<()> {
 //     unsigned width = 640, height = 480;
     const width: usize = 640;
     const height: usize = 480;
+    // const width: usize = 1920;
+    // const height: usize = 1080;
+
 //     Vec3f *image = new Vec3f[width * height], *pixel = image;
 //     float invWidth = 1 / float(width), invHeight = 1 / float(height);
 //     float fov = 30, aspectratio = width / float(height);
 //     float angle = tan(M_PI * 0.5 * fov / 180.);
     // let mut image: [Vec3; width * height];
-    let mut image: Vec<Vec3> = Vec::new();
+    let image: Vec<Vec3> = Vec::new();
     let inv_width = 1.0 / width as f32;
     let inv_height = 1.0 / height as f32;
     let fov = 30.0;
     let aspect_ratio = width as f32 / height as f32;
-    let angle = (PI * 0.5 * fov / 180.0).tan();
+    let angle = ((PI * 0.5 * fov) / 180.0).tan();
     let mut pixel = image;
 //     // Trace rays
 //     for (unsigned y = 0; y < height; ++y) {
@@ -469,8 +495,8 @@ fn render(spheres: Vec<Sphere>) -> std::io::Result<()> {
 //     }
     for y in 0..height {
         for x in 0..width {
-            let xx = (2.0 * ((x as f32 + 0.5) * inv_width) - 1.0) * angle * aspect_ratio;
-            let yy = (1.0 - 2.0 * ((y as f32 + 0.5) * inv_height)) * angle;
+            let xx = ((2.0 * ((x as f32 + 0.5) * inv_width)) - 1.0) * angle * aspect_ratio;
+            let yy = (1.0 - (2.0 * ((y as f32 + 0.5) * inv_height))) * angle;
             let mut raydir = Vec3 { x: xx, y: yy, z: -1.0 };
             raydir.normalize();
             // pixel[x] = trace(Vec3::build1(0.0), raydir, &spheres, 0);
@@ -489,32 +515,13 @@ fn render(spheres: Vec<Sphere>) -> std::io::Result<()> {
     //     delete [] image;
     // }
     let mut wtr = vec![];
-    // wtr.write_u16::<LittleEndian>(517).unwrap();
-    // wtr.write_u16::<LittleEndian>(768).unwrap();
-    // wtr.write_u64::<LittleEndian>(width as u64).unwrap();
-    // wtr.write(width);
-    // wtr.write_u64::<LittleEndian>(height as u64).unwrap();
     wtr.write(b"P6\n");
     write!(wtr, "{}", width);
     wtr.write(b" ");
     write!(wtr, "{}", height);
     wtr.write(b"\n255\n");
-    // buffer.write(b"P6\n");
-    // buffer.write(width);
-    // buffer.write(b" ");
-    // buffer.write(height);
-    // buffer.write(b"\n255\n");
-    // write!(&mut buffer, "{:b}", width);
-    // buffer.write(height);
-    // write!(&mut buffer, "{:b}", height);
     for i in 0..(width * height) {
         let one: f32 = 1.0;
-        // let write_x = one.min(image[i].x) * 255.0;
-        // let write_y = one.min(image[i].y) * 255.0;
-        // let write_z = one.min(image[i].z) * 255.0;
-        // {
-        //     println!("{:?} {:?}", pixel[i].x, one.min(pixel[i].x));
-        // }
         let write_x = one.min(pixel[i].x) * 255.0;
         let write_y = one.min(pixel[i].y) * 255.0;
         let write_z = one.min(pixel[i].z) * 255.0;
@@ -524,21 +531,10 @@ fn render(spheres: Vec<Sphere>) -> std::io::Result<()> {
               write_z as u8,
             ]
         );
-        // wtr.write(write_y as u8);
-        // wtr.write(write_z as u8);        
-        // wtr.write_f32::<LittleEndian>(write_x).unwrap();
-        // wtr.write_f32::<LittleEndian>(write_y).unwrap();
-        // wtr.write_f32::<LittleEndian>(write_z).unwrap();
-        // buffer.write(one.min(image[i].x) * 255.0);
-        // buffer.write(one.min(image[i].y) * 255.0);
-        // buffer.write(one.min(image[i].z) * 255.0);
-        // write!(&mut buffer, "{:b}", one.min(image[i].x) * 255.0);
-        // write!(&mut buffer, "{:b}", one.min(image[i].y) * 255.0);
-        // write!(&mut buffer, "{:b}", one.min(image[i].z) * 255.0);
     }
-    // println!("{:?}", wtr.len());
     let mut buffer = File::create("./untitled.ppm")?;
     buffer.write(&wtr);
+    println!("Done writing to buffer");
     Ok(())
 }
 
@@ -561,9 +557,9 @@ fn main() {
             Vec3 { x: 0.0, y: -10004.0, z: -20.0 },
             10000.0,
             Vec3 { x: 0.20, y: 0.20, z: 0.20 },
+            0.0,
+            0.0,
             Vec3::build1(0.0),
-            0.0,
-            0.0,
         )
     );
 
@@ -573,9 +569,9 @@ fn main() {
             Vec3 { x: 0.0, y: 0.0, z: -20.0 },
             4.0,
             Vec3 { x: 1.00, y: 0.32, z: 0.36 },
-            Vec3::build1(1.0),
+            1.0,
             0.5,
-            0.0,
+            Vec3::build1(0.0),
         )
     );
 
@@ -585,9 +581,10 @@ fn main() {
             Vec3 { x: 5.0, y: -1.0, z: -15.0 },
             2.0,
             Vec3 { x: 0.90, y: 0.76, z: 0.46 },
-            Vec3::build1(1.0),
+            // Vec3::build1(1.0),
+            1.0,
             0.0,
-            0.0,
+            Vec3::build1(0.0),
         )
     );
 
@@ -597,9 +594,10 @@ fn main() {
             Vec3 { x: 5.0, y: 0.0, z: -25.0 },
             3.0,
             Vec3 { x: 0.65, y: 0.77, z: 0.97 },
-            Vec3::build1(1.0),
+            1.0,
             0.0,
-            0.0,
+            Vec3::build1(0.0),
+            // Vec3::build1(1.0),
         )
     );
 
@@ -609,9 +607,9 @@ fn main() {
             Vec3 { x: -5.5, y: 0.0, z: -15.0 },
             3.0,
             Vec3 { x: 0.90, y: 0.90, z: 0.90 },
-            Vec3::build1(1.0),
+            1.0,
             0.0,
-            0.0,
+            Vec3::build1(0.0),
         )
     );
 
@@ -623,10 +621,11 @@ fn main() {
             Vec3 { x: 0.0, y: 20.0, z: -30.0 },
             3.0,
             Vec3 { x: 0.00, y: 0.00, z: 0.00 },
-            Vec3::build1(1.0),
+            // Vec3::build1(0.0),
             0.0,
-            // Vec3::build1(3.0),
-            3.0,
+            0.0,
+            Vec3::build1(3.0),
+            // 3.0,
         )
     );
 //     render(spheres);

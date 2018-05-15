@@ -218,6 +218,7 @@ Vec3f trace(
 void render(const std::vector<Sphere> &spheres)
 {
     unsigned width = 640, height = 480;
+    // unsigned width = 1920, height = 1080;
     Vec3f *image = new Vec3f[width * height];
     Vec3f *pixel = image;
     // std::cout << typeid(pixel).name() << '\n';
@@ -242,6 +243,10 @@ void render(const std::vector<Sphere> &spheres)
         ofs << (unsigned char)(std::min(float(1), image[i].x) * 255) <<
                (unsigned char)(std::min(float(1), image[i].y) * 255) <<
                (unsigned char)(std::min(float(1), image[i].z) * 255);
+        // ofs << (unsigned char)(std::min(float(1), pixel[i].x) * 255) <<
+        //        (unsigned char)(std::min(float(1), pixel[i].y) * 255) <<
+        //        (unsigned char)(std::min(float(1), pixel[i].z) * 255);
+
     }
     ofs.close();
     delete [] image;

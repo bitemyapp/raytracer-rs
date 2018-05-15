@@ -4,6 +4,9 @@ run:
 build-rs:
 	cargo build
 
+run-cpp:
+	c++ -o raytracer -O3 -Wall raytracer.cpp && ./raytracer
+
 build-cpp:
 	c++ -o raytracer -O3 -Wall raytracer.cpp
 
